@@ -4,6 +4,8 @@
 
 #define DELAY 0x80
 
+static uint16_t lineBuffer[160];
+
 // based on Adafruit ST7735 library for Arduino
 static const uint8_t
   init_cmds1[] = {            // Init for 7735R, part 1 (red or green tab)
@@ -53,15 +55,6 @@ static const uint8_t
       0x00, 0x00,             //     XSTART = 0
       0x00, 0x7F },           //     XEND = 127
 #endif // ST7735_IS_128X128
-
-		init_cmds2[] = {            // Init for 7735R, part 2 (1.44" display)
-			2,                        //  2 commands in list:
-			ST7735_CASET  , 4      ,  //  1: Column addr set, 4 args, no delay:
-				0x00, 0x00,             //     XSTART = 0
-				0x00, ST7735_XSTART - 1,             //     XEND = 127
-			ST7735_RASET  , 4      ,  //  2: Row addr set, 4 args, no delay:
-				0x00, 0x00,             //     XSTART = 0
-				0x00, ST7735_YSTART - 1 },           //     XEND = 127
 
 #ifdef ST7735_IS_160X80
   init_cmds2[] = {            // Init for 7735S, part 2 (160x80 display)
@@ -156,41 +149,50 @@ void ST7735_DrawPixel(uint16_t x, uint16_t y, uint16_t color) {
     ST7735_Unselect();
 }
 
+void ST7735_DrawImageMono(uint16_t x, uint16_t y, uint8_t *data, uint16_t w, uint16_t h, uint16_t color, uint16_t bgcolor) {
+    uint32_t i, b, j, idx;
+
+    ST7735_Select();
+    ST7735_SetAddressWindow(x, y, x+w-1, y+h-1);
+
+    ST7735_SetMode(ST7735_DATA);
+
+    color = (color >> 8) + (color << 8);
+    bgcolor = (bgcolor >> 8) + (bgcolor << 8);
+
+    for(i = 0; i < h; i++) {
+    	for(int x=0, idx=0; x<w/8; x++)
+    	{
+			b = data[i*4+x];
+			for(j = 0; j < 8; j++) {
+				if( ((b << j) & 0x80))
+					lineBuffer[idx++] = bgcolor;
+				else
+					lineBuffer[idx++] = color;
+			}
+    	}
+        ST7735_WriteData(lineBuffer, w*sizeof(color));
+    }
+
+    ST7735_Unselect();
+
+}
+
 static void ST7735_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color, uint16_t bgcolor) {
     uint32_t i, b, j;
 
     ST7735_SetAddressWindow(x, y, x+font.width-1, y+font.height-1);
 
-    for(i = 0; i < font.height; i++) {
+for(i = 0; i < font.height; i++) {
         b = font.data[(ch - 32) * font.height + i];
         for(j = 0; j < font.width; j++) {
-            if((b << j) & 0x8000)  {
-                uint8_t data[] = { color >> 8, color & 0xFF };
-                ST7735_WriteData(data, sizeof(data));
-            } else {
-                uint8_t data[] = { bgcolor >> 8, bgcolor & 0xFF };
-                ST7735_WriteData(data, sizeof(data));
-            }
+                lineBuffer[j+i*font.width] = ((b << j) & 0x8000)? color : bgcolor;
         }
     }
+
+    ST7735_SetMode(ST7735_DATA);
+    ST7735_WriteData(lineBuffer, font.width*font.height*sizeof(color));
 }
-
-/*
-Simpler (and probably slower) implementation:
-
-static void ST7735_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color) {
-    uint32_t i, b, j;
-
-    for(i = 0; i < font.height; i++) {
-        b = font.data[(ch - 32) * font.height + i];
-        for(j = 0; j < font.width; j++) {
-            if((b << j) & 0x8000)  {
-                ST7735_DrawPixel(x + j, y + i, color);
-            } 
-        }
-    }
-}
-*/
 
 void ST7735_WriteString(uint16_t x, uint16_t y, const char* str, FontDef font, uint16_t color, uint16_t bgcolor) {
     ST7735_Select();
@@ -227,12 +229,16 @@ void ST7735_FillRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16
     ST7735_Select();
     ST7735_SetAddressWindow(x, y, x+w-1, y+h-1);
 
-    uint8_t data[] = { color >> 8, color & 0xFF };
+
+    uint16_t colr;
+    uint8_t *ptr = &colr;
+    *ptr++ = (color >> 8) & 0xff;
+    *ptr = color & 0xff;
+    for(int i=0; i<w;) lineBuffer[i++] = colr;
+
     ST7735_SetMode(ST7735_DATA);
     for(y = h; y > 0; y--) {
-        for(x = w; x > 0; x--) {
-        	ST7735_TransmitData(data, sizeof(data));
-        }
+            ST7735_TransmitData(lineBuffer, sizeof(color)*w);
     }
 
     ST7735_Unselect();

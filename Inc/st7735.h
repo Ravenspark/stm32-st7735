@@ -213,6 +213,7 @@
 
 // Color definitions
 #define	ST7735_BLACK   0x0000
+#define	ST7735_GREY    0x8410
 #define	ST7735_BLUE    0x001F
 #define	ST7735_RED     0xF800
 #define	ST7735_GREEN   0x07E0
